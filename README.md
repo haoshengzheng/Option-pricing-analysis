@@ -5,17 +5,26 @@ A Python library for pricing and risk-managing exotic options used in the Chines
 
 ## Core Architecture: Dual-Time Framework & Market Alignment
 
-Unlike standard academic pricing models, this suite is engineered from the ground up to strictly adhere to the infrastructure and operational nuances of the **Chinese Commodity and Futures Markets**. 
-
 ### 1. The Dual-Time Axis Principle (`Trading Time` vs. `Calendar Time`)
-To eliminate pricing distortions caused by weekends, public holidays, and fragmented daily sessions, the suite splits the time dimension into two distinct axes:
-* **Trading Time ($T_{\text{trade}}$):** Measured precisely at a **second-by-second granularity** based only on active exchange sessions (incorporating China's specific morning, afternoon, and night sessions, summing up to trading seconds per full day**). Volatility accumulation and diffusion in Geometric Brownian Motion (GBM) are driven exclusively along this axis to prevent the unphysical decay of option value over non-trading periods.
+Chinese commodity options trade in fragmented sessions (typically 09:00-15:00 day + 21:00-23:00 night, depending on the contract) with weekends and public 
+holidays excluded. Treating maturity as flat 365-day calendar time distorts both implied vol and Greeks. This library decouples the time axis:
+* **Trading Time ($T_{\text{trade}}$):** Counted precisely **second-by-second** based only on active exchange sessions (incorporating China's specific morning, afternoon, and night sessions, summing up to trading seconds per full day**). Volatility accumulation and diffusion in Geometric Brownian Motion (GBM) are driven exclusively along this axis to prevent the unphysical decay of option value over non-trading periods.
 * **Calendar Time ($T_{\text{cal}}$):** Calculated on a continuous standard 365-day basis, utilized strictly for discounting cash flows ($e^{-r T_{\text{cal}}}$) and calculating cost-of-carry yields, ensuring precise present-value accounting.
 
-### 2. Independent Implementation & Production-Grade Valuation Alignment
-Every pricing engine, mathematical replication routine, and numerical simulator within this suite was **completely independently developed from scratch**. To guarantee industrial readiness, the model's codebase has been rigorously backtested and cross-verified against real-world institutional benchmarks:
-* **Sell-Side Quote Verification:** The models have been empirically validated using live market parameters and actual daily risk sheets from institutional sell-side desks. When feeding identical trading parameters, this independent pricer replicates the sell-side's **Net Present Value (NPV)** and **Greeks profiles** (Delta, Gamma, Vega, Theta) with an exceptionally tight tracking error **strictly within 3%**.
-* **Onshore Market Settlement Engine Alignment:** The pricer has been cross-checked against the production settlement and valuation systems widely adopted across the Chinese onshore OTC derivative market (eg.Yield Chain). Under identical parameter conditions, the model demonstrates numerical alignment, proving that this pricing implementation fully captures the mathematical consensus of live trading desks.
+* This method of splitting is in line with the reality of China's futures market and is implemented consistently across vanilla, barrier, and accumulator pricers (see 'core/time_utils.py' for session definitions.
+
+### 2. Implementation & Validation
+* All pricers are independently developed from scratch based on classical literature, references without consulting any external codebase — no QuantLib,
+  no proprietary toolkits.
+* **Key references:**
+* Haug (2007) — closed-form vanilla and 8-type discrete barrier
+* Broadie, Glasserman & Kou (1997) — discrete barrier correction (β ≈ 0.5826)
+* Carr & Madan (1998) - static replication of European payoffs via vanilla portfolio
+* **Market-consistent pricing.** Under identical parameters, the library
+  reproduces the prices and Greek profiles quoted by onshore sell-side
+  desks, validated through the author's direct experience in OTC
+  settlement.
+
 
 ## Analysis & Diagnostic Modules
 
