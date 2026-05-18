@@ -1,6 +1,25 @@
+"""
+Trading-time and calendar-time utilities for the Chinese onshore market.
+
+This module powers the dual-time framework used throughout the pricing library: option diffusion is driven by trading time (active exchange
+sessions only), while discounting is driven by calendar time (continuous 365-day basis). Mixing these two consistently requires session-aware
+helpers, which is what this module provides.
+
+SESSIONS:
+The current session layout reflects the most common pattern across Chinese commodity and financial futures:
+    Day sessions   : 09:00-10:15, 10:30-11:30, 13:30-15:00
+    Night session  : 21:00-23:00 (closing same day, no cross-midnight)
+Total active seconds per full trading day: 20,700.
+Trading days per year (working calendar):  242.
+
+Limitations:
+Different products in China have different session boundaries. This module hard-codes a single session layout and does
+not yet support per-product schedules.
+For products outside the default schedule, the constants `_DAY_SESSIONS`, `_NIGHT_START`, `_NIGHT_END`, and
+`SECONDS_PER_FULL_TRADE_DAY` need to be adjusted manually. A future extension would parameterize this by contract symbol.
+"""
 from datetime import datetime, date, timedelta, time
 from typing import Optional, List
-
 import chinese_calendar
 
 _DAY_SESSIONS: list[tuple[time, time]] = [
@@ -40,6 +59,12 @@ def next_trading_day_open(dt:datetime) -> datetime:
     return datetime.combine(next_dt, _NIGHT_START)
 
 def get_all_sessions_of_trading_day(d:date) -> list[tuple[datetime, datetime]]:
+    """
+    Return all (start, end) datetime intervals belonging to trading day `d`.
+    By Chinese-futures convention, a "trading day" runs from the previous trading day's night session through the current day's afternoon close.
+    If the time interval between the current trading day and the previous trading day is more than three days, the night session
+    will be excluded because there will be a holiday during this period, and there are no night sessions during holidays.
+    """
     if not is_cn_trading_day(d):
         return []
     sessions = []
@@ -57,6 +82,7 @@ def get_all_sessions_of_trading_day(d:date) -> list[tuple[datetime, datetime]]:
     return sessions
 
 def count_trading_seconds_precise(start_dt: datetime, end_dt: datetime) -> float:
+    """Count active trading seconds between two timestamps."""
     total_seconds = 0
     curr_d = start_dt.date() - timedelta(days=1)
     scan_end_d  = end_dt.date() + timedelta(days=3)
@@ -87,15 +113,19 @@ def get_trading_day(dt: datetime) -> Optional[date]:
     return None
 
 def resolve_trading_day(dt: datetime) -> Optional[date]:
+    """Like `get_trading_day`, but let the timestamps that fall in inter-session breaks return their true trading day."""
     d, t = dt.date(), dt.time()
     td = get_trading_day(dt)
     if td is not None:
         return td
+    # Pre-open: trading day starts today (if trading) or rolls forward.
     if t < _DAY_SESSIONS[0][0]:
         return d if is_cn_trading_day(d) else next_trading_day(d)
+    # Mid-morning or lunch break.
     if time(10, 15) < t < time(10, 30) or time(11, 30) < t < time(13, 30):
         if is_cn_trading_day(d):
             return d
+    # Between afternoon close and night-session open: roll to next day.
     if t > _DAY_SESSIONS[-1][1] and t < _NIGHT_START:
         return next_trading_day(d)
     return None
@@ -125,7 +155,7 @@ def parse_dt(s: str) -> datetime:
             return datetime.strptime(s, fmt)
         except ValueError:
             continue
-    raise ValueError(f"无法解析时间字符串: {s!r}")
+    raise ValueError(f"Cannot parse datetime string: {s!r}")
 
 def generate_trading_day_obs(start_dt:str, end_dt:str, obs_time:time = time(15,0)) -> List[str]:
     start = parse_dt(start_dt)
@@ -140,6 +170,3 @@ def generate_trading_day_obs(start_dt:str, end_dt:str, obs_time:time = time(15,0
               result.append(obs_dt.strftime('%Y-%m-%d %H:%M:%S'))
         cur_date += timedelta(days=1)
     return result
-
-def hello():
-    print("hello")
