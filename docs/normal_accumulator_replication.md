@@ -155,7 +155,7 @@ second is a continuum of calls (strikes $z > \kappa$).
 
 ### 4.2 Choice of Reference Point
 
-For accumulator we choose $\kappa \to +\infty$ (any $\kappa > K_3$ works):
+For accumulator we choose $\kappa \to +\infty$ :
 
 - $\tilde{f}(\kappa) = 0$ since $\kappa$ is in the flat region beyond $K_3$
 - $\tilde{f}'(\kappa) = 0$ for the same reason
