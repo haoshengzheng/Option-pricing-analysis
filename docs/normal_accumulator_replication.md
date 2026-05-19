@@ -294,7 +294,7 @@ $$
 where $P(K, t_i)$ is the time-0 value of a vanilla put with strike $K$
 expiring at $t_i$. Each $P(K, t_i)$ is computed with the dual-time BSM
 formula: diffusion driven by $T_{trade, i}$, discounting by $T_{cal, i}$
-(see [`docs/01_dual_time_framework.md`](01_dual_time_framework.md)).
+
 
 Greeks follow the same linear structure — since the replication is static
 (weights don't depend on $S$ or $\sigma$), each Greek of the accumulator
