@@ -325,7 +325,7 @@ Using the typical parameters above:
 
 The full pricer output (run `python -m models.normal_accumulator`):
 
-$
+$$
 \begin{array}{lcl}
 \text{=====Accumulator Summary=====}\\
 \text{Price} :\ 15.997635 \\
@@ -334,7 +334,7 @@ $
 \text{Vega} :\ -75.350854 \\
 \text{Theta} :\ +79.383089
 \end{array}
-$
+$$
 
 ## 8. Limitations
 
