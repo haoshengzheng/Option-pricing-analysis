@@ -319,11 +319,11 @@ class AccumulatorMC:
 
 if __name__ == '__main__':
     params = dict(
-        S=1219, K=1263, B=1175,
+        S=1219, K=1175, B=1263,
         r=0.03, b=0.0, sigma=0.23,
         L=3.0, PR=1.0,
         strike_shift=0.002,
-        option_type='put',
+        option_type='call',
         start_dt="2026.05.19 14:09:01",
         end_dt="2026.06.23 15:00:00",
         seed=42,
