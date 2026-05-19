@@ -1,11 +1,65 @@
+"""
+Normal accumulator option pricer via static replication.
+
+The Normal accumulator is a path-of-daily-payoffs structure:
+on each trading day from start_dt to end_dt, the buyer receives a piecewise-linear payoff in spot S_t:
+
+    Call accumulator daily payoff (per unit):
+        +PR * (S_t - K)        if K <= S_t < B          (in-the-money zone)
+         0                     if S_t >= B              (boundary cap)
+        -L  * (K - S_t)        if S_t < K               (leveraged downside)
+
+    Put accumulator is the mirror image (sign-flipped, with B below K).
+
+PR is the participation rate (typically 1.0), L is the leverage on losses (typically 2.0 or higher),
+and B is the upper boundary that caps each day's upside.
+
+Pricing approach:
+Each daily payoff is a piecewise-linear function of S_t with three kinks.
+By  Carr-Madan (1998), any European payoff f(S_T) admits a static replication
+
+    f(S_T) = f(K) + f'(K)(S_T - K)
+            + integral_0^K f''(z) (z - S_T)+ dz       (put leg)
+            + integral_K^inf f''(z) (S_T - z)+ dz     (call leg)
+
+For the call accumulator, replicating with puts:
+    K1 = K           (downside leverage kink)
+    K2 = B           (boundary kink)
+    K3 = B*(1+eps)   (boundary kink, shifted by `strike_shift` eps)
+
+Weights are derived by matching the three slope-jumps at K1, K2, K3:
+    w1 = PR * (K3-K2)/(K2-K1)    # slope between K2 and K3
+    w2 = w1 + PR                 # slope between K2 and K3
+    w3 = L - PR                  # slope between K1 and K2
+
+See docs/accumulator_replication.md for the full derivation and a worked numerical example.
+
+The MC pricer (AccumulatorMC) below is an independent path-simulation implementation used to cross-validate the replication pricer.
+"""
 from datetime import  time
 import numpy as np
 from core.time_utils import parse_dt, count_trading_seconds_precise, generate_trading_day_obs, SECONDS_PER_FULL_TRADE_DAY, trading_days_per_year
 from core.vanilla import VanillaBSM
 
 
-
 class AccumulatorReplication:
+    """
+    Each daily piecewise-linear payoff is decomposed into a portfolio of three vanilla puts (for call accumulator) or three vanilla calls
+    (for put accumulator) via Carr-Madan. The total contract value is the sum of these three-vanilla portfolios across all observation dates.
+
+    PARAMETERS:
+
+    S: Spot price at inception.
+    K: Strike of the accumulator payoff.
+    B: Upper boundary (call) / lower boundary (put). Each day's payoff is zero when close-spot crosses this level (a soft cap,
+       not a knock-out for the normal accumulator — see ko_accumulator.py for KO variant).
+    r, b, sigma: Risk-free rate, cost of carry, annualized volatility.
+    L: Leverage multiplier on the loss leg. Must be >= PR.
+    PR: Participation rate between strike and barrier.
+    strike_shift: The parameter that controls the smoothness of the payoff at cliff (S = B)
+    option_type : {'call', 'put'}
+    start_dt, end_dt: Inception and maturity timestamps (parsed by parse_dt).
+    """
     def __init__(self, S: float, K: float, B: float, r: float, b: float, sigma: float, L: float, PR: float, strike_shift: float,
                  option_type: str, start_dt: str, end_dt: str):
         if strike_shift <= 0:
@@ -41,7 +95,7 @@ class AccumulatorReplication:
         self._obs_info: list[dict] = []
         for obs_dt in self.obs_dts:
             if obs_dt < self.start:
-                raise ValueError(f"观察日 {obs_dt} 早于起始时间 {self.start}")
+                raise ValueError(f"Observation date {obs_dt} is before start {self.start}")
             cal_sec = (obs_dt - self.start).total_seconds()
             T_cal_i = cal_sec / (365 * 86400)
             trade_sec = count_trading_seconds_precise(self.start, obs_dt)
@@ -50,12 +104,15 @@ class AccumulatorReplication:
             self._obs_info.append({'dt': obs_dt, 'T_cal': T_cal_i, 'T_trade': T_trade_i, 'df': df_i, 'trade_sec': trade_sec})
 
     def _sum_call(self,K):
+        """Sum of vanilla call prices at strike K across all observation dates."""
         total = 0
         for info in self._obs_info:
             v = VanillaBSM(S=self.S, K=K, T_trade=info['T_trade'], T_cal=info['T_cal'], r=self.r, b=self.b, sigma=self.sigma)
             total += v.price(1)
         return total
+
     def _sum_put(self,K):
+        """Sum of vanilla put prices at strike K across all observation dates."""
         total = 0
         for info in self._obs_info:
             v = VanillaBSM(S=self.S, K=K, T_trade=info['T_trade'], T_cal=info['T_cal'], r=self.r, b=self.b,sigma=self.sigma)
@@ -63,6 +120,7 @@ class AccumulatorReplication:
         return total
 
     def price(self) -> float:
+        """Total accumulator value via static replication."""
         if self.option_type == "call":
             sum_K3 = self._sum_put(self.K3)
             sum_K2 = self._sum_put(self.K2)
@@ -76,10 +134,7 @@ class AccumulatorReplication:
         return total
 
     def greeks(self) -> dict:
-        delta = 0.0
-        gamma = 0.0
-        vega = 0.0
-        theta = 0.0
+        delta = gamma = vega = theta = 0.0
         for info in self._obs_info:
             v1 = VanillaBSM(self.S, self.K1, info['T_trade'], info['T_cal'], self.r, self.b, self.sigma)
             v2 = VanillaBSM(self.S, self.K2, info['T_trade'], info['T_cal'], self.r, self.b, self.sigma)
@@ -115,6 +170,7 @@ class AccumulatorReplication:
         return {'delta': round(delta, 6), 'gamma': round(gamma, 6), 'vega': round(vega, 6), 'theta': round(theta, 6) }
 
     def obs_breakdown(self) -> list[dict]:
+        """Per-observation contribution to the total price"""
         rows = []
         for info in self._obs_info:
             v1 = VanillaBSM(self.S, self.K1, info['T_trade'], info['T_cal'], self.r, self.b, self.sigma)
@@ -131,7 +187,8 @@ class AccumulatorReplication:
             rows.append({
                 'date': str(info['dt'])[:10],
                 'T': round(info['T_trade'], 4),
-                'value': round(contrib, 6),'trade_sec':round(info['trade_sec'], 4)
+                'value': round(contrib, 6),
+                'trade_sec':round(info['trade_sec'], 4)
             })
 
         return rows
@@ -158,6 +215,20 @@ class AccumulatorReplication:
         print("----------------------------")
 
 class AccumulatorMC:
+    """
+    Monte Carlo pricer for the accumulator, used to cross-validate AccumulatorReplication.
+
+    Simulates GBM paths under the trading-time with antithetic variates, evaluates the piecewise-linear payoff on each path at
+    each observation date, and discounts each contribution by the calendar-time.
+
+    Convergence verification with replication method see analysis/mc_convergence.py.
+
+    PARAMETERS:
+
+    n_paths: Number of simulated paths
+    seed: RNG seed for reproducibility.
+    All other parameters as in AccumulatorReplication.
+    """
     def __init__(self, S: float, K: float, B: float, r: float, b: float, sigma: float, L: float, PR: float,
                  option_type: str, start_dt: str, end_dt: str, n_paths: int = 20000, seed:int = 42):
 
@@ -248,13 +319,13 @@ class AccumulatorMC:
 
 if __name__ == '__main__':
     params = dict(
-        S=3362, K=3307.87, B=3409,
-        r=0.03, b=0.0, sigma=0.09,
-        L=2.0, PR=1.0,
+        S=1219, K=1263, B=1175,
+        r=0.03, b=0.0, sigma=0.23,
+        L=3.0, PR=1.0,
         strike_shift=0.002,
-        option_type='call',
-        start_dt="2026.04.20 21:17:01",
-        end_dt="2026.06.18 15:00:00",
+        option_type='put',
+        start_dt="2026.05.19 14:09:01",
+        end_dt="2026.06.23 15:00:00",
         seed=42,
     )
 
