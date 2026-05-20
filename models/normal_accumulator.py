@@ -5,9 +5,9 @@ The Normal accumulator is a path-of-daily-payoffs structure:
 on each trading day from start_dt to end_dt, the buyer receives a piecewise-linear payoff in spot S_t:
 
     Call accumulator daily payoff (per unit):
-        +PR * (S_t - K)        if K <= S_t < B          (in-the-money zone)
+        +PR * (S_t - K)        if K <= S_t < B          (gain leg)
          0                     if S_t >= B              (boundary cap)
-        -L  * (K - S_t)        if S_t < K               (leveraged downside)
+        -L  * (K - S_t)        if S_t < K               (leveraged loss leg)
 
     Put accumulator is the mirror image (sign-flipped, with B below K).
 

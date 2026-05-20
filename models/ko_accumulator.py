@@ -1,11 +1,63 @@
+"""
+Knock-Out Accumulator pricer.
+
+Unlike the normal accumulator (priced via Carr-Madan static replication of a piecewise-linear payoff),
+the knock-out variant adds a path-dependent feature:
+once close-spot touches the boundary B on any observation datetime, the contract terminates and pays a fixed daily rebate for the remaining days.
+
+This path-dependency breaks Carr-Madan replication (which only applies to European payoffs f(S_T)).
+Instead, each observation day's contribution is priced as a portfolio of discrete-monitored barrier options
+via the Haug closed-form formula with BGK continuity correction (see core/discrete_barrier.py).
+
+Decomposition of the daily payoff:
+
+For a call KO accumulator, if the option has not knocked out (the close-spot has not touched B)
+Its daily payoff is the same piecewise-linear shape as the normal accumulator:
+
+    +PR * (S_t - K)   if k <= S_t < B    (Gain leg)
+    -L  * (K - S_t)   if S_t <  K     (leveraged loss leg)
+
+But each leg now lives inside a knock-out structure:
+
+    Gain leg : the buyer long a call knocked out at the up-barrier B  -> CUO (call up-out), carrying the daily rebate when knocked out
+    Loss leg : the buyer short a put knocked out at the up-barrier B  -> PUO (put up-out), with no rebate
+
+So the per-day value is:
+
+    daily = PR * CUO(strike=K, barrier=B, rebate)  -  L * PUO(strike=K, barrier=B, 0)
+
+The total contract value sums these daily contributions across all observation dates
+
+For a put KO accumulator the barrier is below the strike, and the legs become PDO (long, with rebate) and CDO (short, no rebate).
+
+
+Greeks are computed by finite difference, since the closed form of greeks of the barrier are very complicated.
+
+A separate Monte Carlo pricer (KnockOutAccumulatorMC) simulates the full path-dependent payoff directly and is used for cross-validation.
+"""
 from datetime import  time
 import numpy as np
 from core.time_utils import parse_dt, count_trading_seconds_precise, generate_trading_day_obs, SECONDS_PER_FULL_TRADE_DAY, trading_days_per_year
 from core.discrete_barrier import HaugBarrierDualTime
 
 class KnockOutAccumulatorPricer:
-    BETA_DEFAULT = 0.5826
+    """
+    Each daily observation is decomposed into long PR weights of CUO (up-and-out call), and short L weights of PUO (up-and-out put)
 
+    PARAMETERS:
+
+    S: Spot price at inception.
+    K: Accumulator strike.
+    B: Knock-out barrier. For a call accumulator B > K (upper barrier); for a put accumulator B < K (lower barrier).
+    r, b, sigma: Risk-free rate, cost of carry, annualized volatility.
+    L: Leverage multiplier on the loss leg. Must be >= PR.
+    PR: Participation rate between strike and barrier.
+    rebate: Cash paid per remaining day once knocked out
+    option_type: {'call', 'put'}
+    start_dt, end_dt: Inception and maturity timestamps.
+    beta: BGK continuity-correction constant., default 0.5826
+    """
+    BETA_DEFAULT = 0.5826
     def __init__(self, S: float, K: float, B: float, r: float, b: float, sigma: float, PR: float, L: float, rebate: float, option_type: str,
                  start_dt: str, end_dt: str, beta: float = BETA_DEFAULT,):
 
@@ -34,12 +86,20 @@ class KnockOutAccumulatorPricer:
             })
 
     def _one_barrier_price(self, info: dict, barrier_type: str, rebate_val: float, S:float, sigma:float, t_shift:float=0) -> float:
+        """
+        Price a single knock-out barrier option for one observation date.
+
+        Applies the BGK barrier adjustment, checks whether spot has already reached the adjusted barrier (in which case only the rebate remains),
+        and otherwise delegates to the Haug closed-form pricer.
+
+        The `t_shift` argument shifts maturity backward in trading time; it is used by greeks() to compute theta via a forward time bump.
+        """
         T_trade_raw = info['T_trade']
         T_cal_raw = info['T_cal']
         T_trade = T_trade_raw - t_shift
         if T_trade <= 0.0:
             return 0.0
-        T_cal = T_cal_raw * (T_trade / T_trade_raw)
+        T_cal = T_cal_raw * (T_trade / T_trade_raw)    # Scale calendar time by the same fraction the trading time shrank.
         is_upper = ('u' in barrier_type)
         H_adj = self.B * np.exp((+1 if is_upper else -1) * self.beta * sigma * np.sqrt(self.dt))
         hit = (is_upper and S >= H_adj) or (not is_upper and S <= H_adj)
@@ -68,7 +128,16 @@ class KnockOutAccumulatorPricer:
 
 
     def greeks(self, dS_frac: float = 1e-4, d_sigma: float = 1e-4, theta_seconds:float = 60) -> dict:
+        """
+        Finite-difference Greeks.
 
+        Delta, Gamma : central difference in spot, bump = S * dS_frac
+        Vega         : central difference in vol, reported per 1% vol move
+        Theta        : forward difference in trading time, reported per trading day.
+
+        Bump sizes default to 1e-4; see analysis/bump_size.py for a study of bump-size stability, especially near the barrier where the
+        knock-out discontinuity makes finite differences delicate.
+        """
         p0  = self.price()
         h_S = self.S * dS_frac
         p_up   = self._total_price(self.S + h_S, self.sigma)
@@ -112,27 +181,46 @@ class KnockOutAccumulatorPricer:
         rows = self.obs_breakdown()
         n = len(rows)
 
-        print(f"  ▶  Price = {px:.6f}")
+        print("\n===== Knock out Accumulator Summary =====")
+        print(f"  Price : {px:.6f}")
         if show_greeks:
             gk = self.greeks()
-            print(f"  ▶  Delta = {gk['delta']:+.8f}")
-            print(f"  ▶  Gamma = {gk['gamma']:+.8f}")
-            print(f"  ▶  Vega  = {gk['vega']:+.8f}  (per 1% vol)")
-            print(f"  ▶  Theta = {gk['theta']:+.8f}  (per trading day)")
-        print(f"{'─' * 62}")
+            print(f"  Delta : {gk['delta']:+.8f}")
+            print(f"  Gamma : {gk['gamma']:+.8f}")
+            print(f"  Vega  : {gk['vega']:+.8f}  (per 1% vol)")
+            print(f"  Theta : {gk['theta']:+.8f}  (per trading day)")
+        print("\n--- Daily Contributions ---")
         if max_rows > 0 and n > 0:
             ll = 'CUO×PR' if self.option_type == 'call' else 'PDO×PR'
             sl = 'PUO×L' if self.option_type == 'call' else 'CDO×L'
-            print(f"  {'日期':^12}  {'T_trade':>8}  {ll:>10}  {sl:>10}  {'贡献':>10}")
-            print(f"  {'─' * 56}")
+            print(f"  {'Date':^12}  {'T_trade':>8}  {ll:>10}  {sl:>10}  {'Net':>10}")
+            print(f"{'-' * 62}")
             for row in rows[:max_rows]:
-                print(f"  {row['date']:^12}  {row['T_trade']:>8.5f}"
-                      f"  {row['long']:>10.4f}  {row['short']:>10.4f}  {row['contrib']:>10.4f}")
+                print(f"  {row['date']:^12} | {row['T_trade']:>8.5f}|"
+                      f"  {row['long']:>10.4f} | {row['short']:>10.4f} | {row['contrib']:>10.4f}")
             if n > max_rows:
-                print(f"  ... （共 {n} 天）")
-        print(f"{'=' * 62}")
+                print(f"  ... （ {n} days total）")
+
 
 class KnockOutAccumulatorMC:
+    """
+    Monte Carlo pricer for the knock-out accumulator, used to cross-validate KnockOutAccumulatorPricer.
+
+    Simulates GBM paths under the trading-time clock with antithetic variates.
+    For each path, finds the first observation date (if any) where close-spot touches the barrier B.
+    Before knock-out, the path remains as the normal piecewise-linear daily payoff. On knock-out, the path will terminate
+    and instead receives the daily rebate for all remaining days.
+
+    Note on barrier monitoring: the MC checks knock-out only at observation datetime (discrete monitoring), consistent with the contract terms.
+    The analytic pricer applies the BGK adjustment to bridge discrete and continuous;
+    convergence between the two is the validation check (analysis/mc_convergence.py).
+
+    PARAMETERS:
+
+    n_paths: Number of simulated paths
+    seed: RNG seed for reproducibility.
+    All other parameters as in AccumulatorReplication.
+    """
     def __init__(self, S: float, K: float, B: float, r: float, b: float, sigma: float, PR: float, L: float, rebate: float,option_type: str,
                  start_dt: str, end_dt: str,n_paths: int = 20000,seed: int = 42, ):
         self.option_type = option_type.lower()
@@ -174,9 +262,9 @@ class KnockOutAccumulatorMC:
     def pay_off(self, S_obs: np.ndarray) -> np.ndarray:
         n_paths, n_obs = S_obs.shape
         knockout = S_obs >= self.B if self.option_type == 'call' else S_obs <= self.B
-        knockout_cum = np.cumsum(knockout, axis=1) > 0  #路径上敲出之前均为false，敲出之后累加均为true
-        knockout_ever = knockout.any(axis=1)            #路径是否曾经敲出
-        knockout_day = np.where(knockout_ever, knockout.argmax(axis=1), n_obs)
+        knockout_cum = np.cumsum(knockout, axis=1) > 0  # Cumulative knock-out flag: False before first touch, True after.
+        knockout_ever = knockout.any(axis=1)            # Whether the path has been knocked out
+        knockout_day = np.where(knockout_ever, knockout.argmax(axis=1), n_obs)  # First knock-out observation index per path (n_obs if never).
 
         if self.option_type == 'call':
             normal_payoff = np.where(S_obs >= self.K, self.PR * (S_obs - self.K),
