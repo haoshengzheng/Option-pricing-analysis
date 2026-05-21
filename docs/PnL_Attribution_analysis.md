@@ -30,18 +30,18 @@ a multivariate Taylor expansion of the value function:
 $$
 \begin{aligned}
 \text{PnL} \approx\;&
-\underbrace{\Delta \, dS + \tfrac12 \Gamma \, dS^2}_{\text{spot, 1st + 2nd order}}
-\\[4pt]
-&+ \underbrace{V \, d\sigma + \tfrac12 \text{Vomma} \, d\sigma^2}_{\text{vol, 1st + 2nd order}}
-\\[4pt]
-&+ \underbrace{\text{Vanna} \, dS \, d\sigma}_{\text{cross spot-vol}}
-\\[4pt]
-&+ \underbrace{\Theta \, dt}_{\text{time decay}}
-\\[4pt]
+\underbrace{\Delta \ dS + \tfrac12 \Gamma \ dS^2}_{\text{spot, 1st + 2nd order}}
+\
+&+ \underbrace{V \ d\sigma + \tfrac12 \text{Vomma} \ d\sigma^2}_{\text{vol, 1st + 2nd order}}
+\
+&+ \underbrace{\text{Vanna} \ dS \ d\sigma}_{\text{cross spot-vol}}
+\
+&+ \underbrace{\Theta \ dt}_{\text{time decay}}
+\
 &+ \underbrace{
 \tfrac16 \frac{\partial^3 V}{\partial \sigma^3} d\sigma^3
 }_{\text{3rd-order vol}}
-\\[4pt]
+\
 &+ \text{residual}
 \end{aligned}
 $$
