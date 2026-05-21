@@ -143,7 +143,7 @@ def compute_pnl(option_type, base_params:dict, next_pnl_dt:str, dS_fracs:tuple=(
         actual = V1(S0 + dS, sigma0 + sigma_change) - V0
         delta_pnl = greeks0['delta'] * dS
         gamma_pnl = 0.5 * greeks0['gamma'] * dS**2
-        vega_pnl = greeks0['vega'] * sigma_change
+        vega_pnl = greeks0['vega'] * sigma_change * 100
         vanna_pnl = vanna0 * dS * sigma_change
         vomma_pnl = 0.5 * vomma0 * sigma_change**2
         theta_pnl = theta0 * trade_sec
@@ -293,10 +293,10 @@ if __name__ == '__main__':
         seed=42,
     )
 
-    res = compute_pnl(option_type= "knockout",
+    res = compute_pnl(option_type= "normal",
         base_params=params, next_pnl_dt="2026.05.19 21:00:00",
         dS_fracs=(-0.05, -0.03, -0.01, 0.0, 0.01, 0.03, 0.05),
         dsigma=(-0.05, -0.03, -0.01, 0.005, 0.01, 0.03, 0.05),
      )
 
-    plot_pnl(res, params, "knockout")
+    plot_pnl(res, params, "normal")
