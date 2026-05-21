@@ -27,14 +27,24 @@ buys and holds the accumulator.
 For a move (dS, dSigma) over a short horizon dt, realized PnL is approximated by
 a multivariate Taylor expansion of the value function:
 
-$
-$\text{PnL} \approx \underbrace{\Delta \, dS + \tfrac12 \Gamma \, dS^2}_{\text{spot, 1st + 2nd order}}$
-$+ \underbrace{V \, d\sigma + \tfrac12 \text{Vomma} \, d\sigma^2}_{\text{vol, 1st + 2nd order}}$
-$+ \underbrace{\text{Vanna} \, dS \, d\sigma}_{\text{cross spot-vol}}$
-$+ \underbrace{\Theta \, dt}_{\text{time decay}}$
-$+ \underbrace{\tfrac16 \tfrac{\partial^3 V}{\partial\sigma^3} d\sigma^3}_{\text{3rd-order vol}}$
-$+ \text{residual}$
-$
+$$
+\begin{aligned}
+\text{PnL} \approx\;&
+\underbrace{\Delta \, dS + \tfrac12 \Gamma \, dS^2}_{\text{spot, 1st + 2nd order}}
+\\[4pt]
+&+ \underbrace{V \, d\sigma + \tfrac12 \text{Vomma} \, d\sigma^2}_{\text{vol, 1st + 2nd order}}
+\\[4pt]
+&+ \underbrace{\text{Vanna} \, dS \, d\sigma}_{\text{cross spot-vol}}
+\\[4pt]
+&+ \underbrace{\Theta \, dt}_{\text{time decay}}
+\\[4pt]
+&+ \underbrace{
+\tfrac16 \frac{\partial^3 V}{\partial \sigma^3} d\sigma^3
+}_{\text{3rd-order vol}}
+\\[4pt]
+&+ \text{residual}
+\end{aligned}
+$$
 
 
 The residual is defined as actual PnL minus all explained terms. First-order
