@@ -29,10 +29,10 @@ a multivariate Taylor expansion of the value function:
 
 $$
 \begin{aligned}
-\text{PnL} \approx\;&
+\text{PnL} \approx\&
 \underbrace{\Delta \ dS + \tfrac12 \Gamma \ dS^2}_{\text{spot, 1st + 2nd order}}
 \
-&+ \underbrace{V \ d\sigma + \tfrac12 \text{Vomma} \ d\sigma^2}_{\text{vol, 1st + 2nd order}}
+&+ \underbrace{\text{Vega} \ d\sigma + \tfrac12 \text{Vomma} \ d\sigma^2}_{\text{vol, 1st + 2nd order}}
 \
 &+ \underbrace{\text{Vanna} \ dS \ d\sigma}_{\text{cross spot-vol}}
 \
