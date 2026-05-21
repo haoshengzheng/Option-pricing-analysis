@@ -13,8 +13,8 @@ When moving from the close of one trading day to the next trading day, spot and 
 and the mark-to-market PnL of accumulator shifts. A trading desk needs to answer two questions:
 
 
-1. **How well** does a first-/second-order Greek model explain the realized PnL?
-2. **What is left** in the residual, and what does it reveal about the
+1. How well does a first-/second-order Greek model explain the realized PnL?
+2. What is left in the residual, and what does it reveal about the
    position's hidden risks?
 
 All analysis is from the **client's (long) perspective**: the client
@@ -28,12 +28,13 @@ For a move (dS, dSigma) over a short horizon dt, realized PnL is approximated by
 a multivariate Taylor expansion of the value function:
 
 $
-\text{PnL} \approx \underbrace{\Delta \, dS + \tfrac12 \Gamma \, dS^2}_{\text{spot, 1st + 2nd order}}$
+$\text{PnL} \approx \underbrace{\Delta \, dS + \tfrac12 \Gamma \, dS^2}_{\text{spot, 1st + 2nd order}}$
 $+ \underbrace{V \, d\sigma + \tfrac12 \text{Vomma} \, d\sigma^2}_{\text{vol, 1st + 2nd order}}$
 $+ \underbrace{\text{Vanna} \, dS \, d\sigma}_{\text{cross spot-vol}}$
 $+ \underbrace{\Theta \, dt}_{\text{time decay}}$
 $+ \underbrace{\tfrac16 \tfrac{\partial^3 V}{\partial\sigma^3} d\sigma^3}_{\text{3rd-order vol}}$
 $+ \text{residual}$
+$
 
 
 The residual is defined as actual PnL minus all explained terms. First-order
