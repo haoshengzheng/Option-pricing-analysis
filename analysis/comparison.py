@@ -1,12 +1,34 @@
+"""
+Comparison and risk-diagnostics for normal vs knock-out accumulators.
+
+Three analyses, each highlighting a different facet of how the knock-out
+feature changes the risk profile relative to a plain accumulator:
+
+1. Zero-cost strike trade-off (plot_zero_cost_strike)
+   For a structurer, The basic question: given the barrier and current price,
+   what zero-cost strike can the client get? And how much better is that strike
+   if the client accepts knock-out risk? The plots show the tradeoff between strike and rebate.
+
+2. Pin risk near the barrier (plot_pin_risk)
+   The figures show the changes in Delta and Gamma for the two structures near the barrier level.
+   Highlights the BGK "gray zone" between the real barrier B and the model-adjusted barrier B_adj,
+   where the contract has knocked out but the model is still alive.
+
+3. Trade sensitivity (plot_sensitivity)
+   Set both products to zero-cost by solving for strike and rebate. Then sweep spot
+   and volatility to show the change of value and Greeks, comparing delta, gamma and vega stability
+   when volatility changes.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import brentq
-
+from core.time_utils import trading_days_per_year
 from models.normal_accumulator import AccumulatorReplication
 from models.ko_accumulator import KnockOutAccumulatorPricer
 
 
 def _build(option_type: str, params: dict):
+    """Construct a normal or knock-out accumulator pricer from a params dict."""
     p   = params
     if option_type == 'normal':
         return AccumulatorReplication(
@@ -37,7 +59,8 @@ def _greeks(option_type, params, **ov):
     return _build(option_type, {**params, **ov}).greeks()
 
 def _bgk_adj(params, beta=0.5826):
-    ann = params.get('trading_days_per_year', 245)
+    """Compute the BGK-adjusted barrier B_adj = B * exp(beta * sigma * sqrt(dt))."""
+    ann = trading_days_per_year
     dt  = 1.0 / ann
     return params['B'] * np.exp(beta * params['sigma'] * np.sqrt(dt))
 
@@ -74,6 +97,7 @@ def print_summary(params: dict) -> None:
 
 def _find_zero_cost_k(option_type: str, params: dict,
                       K_low=0.70, K_high=1.3) -> float:
+    """Solve for the strike K that makes the contract zero-cost (price = 0), via Brent's method"""
     B  = params['B']
     low = B * K_low
     high = B * K_high
@@ -98,6 +122,7 @@ def _find_zero_cost_k(option_type: str, params: dict,
 
 
 def _find_zero_cost_rebate(params: dict) -> float:
+    """Solve for the daily rebate that makes the knock-out contract zero-cost."""
     def obj(r):
         p = params.copy()
         p['rebate'] = r
@@ -225,7 +250,7 @@ def plot_pin_risk(params: dict, dist_low: float = 0.005, dist_high: float = 0.00
         ylim = ax.get_ylim()
         ypos = ylim[0] + (ylim[1] - ylim[0]) * 0.15
         ax.text(mid_gray, ypos,
-                f'Gray zone\nContract: KO\nModel: alive\n→ manual desk',
+                f'Gray zone\nContract: KO\nModel: alive',
                 fontsize=7, color='saddlebrown', ha='center', va='bottom',
                 bbox=dict(boxstyle='round', fc='lightyellow', alpha=0.85))
 
@@ -239,7 +264,7 @@ def plot_pin_risk(params: dict, dist_low: float = 0.005, dist_high: float = 0.00
     plt.show()
 
 
-def plot_advanced_sensitivity(params: dict, n_pts: int = 40):
+def plot_sensitivity(params: dict, n_pts: int = 40):
 
     S0, sig0 = params['S'], params['sigma']
     k_zero = _find_zero_cost_k('normal', params)
@@ -281,7 +306,7 @@ def plot_advanced_sensitivity(params: dict, n_pts: int = 40):
     ax.axvline(params['K'], color='Green', ls='-', label='Strike')
     ax.axvline(S0, color='red', ls=':', label='Entry Spot')
     ax.axvline(params['B'], color='black', ls='-', alpha=0.3, label='Barrier')
-    ax.set_title("Value Evolution vs Spot (Payoff Profile)")
+    ax.set_title("Valuation vs Spot")
     ax.set_ylabel("NPV (Value)")
 
 
@@ -289,7 +314,7 @@ def plot_advanced_sensitivity(params: dict, n_pts: int = 40):
     ax.plot(sig_vals * 100, val_sig_n, label='Normal Value', color='steelblue')
     ax.plot(sig_vals * 100, val_sig_k, label='KO Value', color='darkorange', ls='--')
     ax.axvline(sig0 * 100, color='Red', ls='-', label='current sigma')
-    ax.set_title("Value Evolution vs Volatility (Vega Risk)")
+    ax.set_title("Valuation vs Volatility")
     ax.set_ylabel("NPV (Value)")
     ax.set_xlabel("Sigma (%)")
 
@@ -297,7 +322,7 @@ def plot_advanced_sensitivity(params: dict, n_pts: int = 40):
     ax.plot(sig_vals * 100, dl_sig_n, label='Normal Delta', color='steelblue')
     ax.plot(sig_vals * 100, dl_sig_k, label='KO Delta', color='darkorange', ls='--')
     ax.axvline(sig0 * 100, color='Red', ls='-', label='current sigma')
-    ax.set_title("Delta Stability vs Volatility")
+    ax.set_title("Delta vs Volatility")
     ax.set_ylabel("Delta")
     ax.set_xlabel("Sigma (%)")
 
@@ -314,7 +339,7 @@ def plot_advanced_sensitivity(params: dict, n_pts: int = 40):
         a.grid(alpha=0.3)
         a.axhline(0, color='black', lw=1)
 
-    plt.suptitle(f"Post-Trade Risk Profile (Initial Zero-Cost at S={S0}, K={k_zero:.1f})", fontsize=12,
+    plt.suptitle(f"Greeks and Valuation Profile (Initial Zero-Cost at S={S0}, K={k_zero:.1f}, Rebate={rebate_zero:.2f})", fontsize=12,
                  fontweight='bold')
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
@@ -339,7 +364,7 @@ def run_comparison(params: dict,
         plot_pin_risk(params)
     if 3 in sections:
         print("\nParameter sensitivity analysis")
-        plot_advanced_sensitivity(params)
+        plot_sensitivity(params)
 
     print(f"\n{sep}\n  Done.\n{sep}")
 
@@ -355,7 +380,6 @@ if __name__ == '__main__':
         option_type='call',
         start_dt="2026.04.20 21:17:01",
         end_dt="2026.06.18 15:00:00",
-        trading_days_per_year=242,
     )
 
     run_comparison(params, sections=(0,1,2,3))
