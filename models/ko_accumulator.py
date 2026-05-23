@@ -127,7 +127,7 @@ class KnockOutAccumulatorPricer:
         return self._total_price(self.S, self.sigma)
 
 
-    def greeks(self, dS_frac: float = 1e-4, d_sigma: float = 1e-4, theta_seconds:float = 60) -> dict:
+    def greeks(self, dS_frac: float = 1e-3, d_sigma: float = 1e-4, theta_seconds:float = 60) -> dict:
         """
         Finite-difference Greeks.
 

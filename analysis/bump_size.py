@@ -1,29 +1,61 @@
+"""
+Bump-size stability analysis for finite-difference Greeks.
+
+The accumulator pricers compute some Greeks by finite difference (the
+knock-out pricer fully so). The accuracy of a finite-difference Greek depends
+critically on the bump size h, caught between two competing errors:
+
+  - Truncation error: O(h^2) for central difference — grows with h
+  - Round-off error : O(1/h) from floating-point cancellation — grows as h
+                      shrinks
+
+There is an optimal h that balances the two. This module scans h across many
+orders of magnitude, benchmarks each estimate against a high-accuracy
+Richardson-extrapolated reference (O(h^4)), and identifies the "stable zone"
+where the relative error stays below 1%.
+
+The analysis is most revealing near the knock-out barrier. As spot approaches
+the (BGK-adjusted) barrier B_adj, any bump large enough to beat round-off may
+straddle the barrier — where the value jumps discontinuously to the rebate —
+making the difference meaningless. The stable zone narrows and can vanish entirely
+when the spot is very close to barrier: no bump size gives a reliable Greek.
+
+Note on the barrier level: when evaluating the knock-out pricer, the model's
+effective barrier is the BGK-adjusted B_adj, not the contractual B. Stress
+tests place spot relative to B_adj, since that is the level the model's
+discontinuity actually sits at.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Callable
-
+from core.time_utils import trading_days_per_year
 from models.normal_accumulator import AccumulatorReplication
 from models.ko_accumulator import KnockOutAccumulatorPricer
 
 STABLE_STANDARD = 0.01
 
 def _cd1(f:Callable, x: float, h: float) -> float:
+    """Central first difference: O(h^2) estimate of f'(x)."""
     return (f(x + h) - f(x - h)) / (2 * h)
 
 def _fd1(f:Callable, x: float, h: float) -> float:
+    """Forward first difference: O(h) estimate of f'(x)"""
     return (f(x + h) - f(x)) / h
 
 def _cd2(f:Callable, x: float, h: float, f0: float | None = None) -> float:
+    """Central second difference: O(h^2) estimate of f''(x)."""
     if f0 is None:
         f0 = f(x)
     return (f(x + h) - 2 * f0 + f(x - h)) / h ** 2
 
 def _rich1(f:Callable, x: float, h: float) -> float:
+    """Richardson first derivative: combines central differences at h and 2h to cancel the leading O(h^2) error, giving O(h^4) accuracy."""
     cd1_h = (f(x + h) - f(x - h)) / (2 * h)
     cd1_2h= (f(x + 2 * h) - f(x - 2 * h)) / (4 * h)
     return (4 * cd1_h - cd1_2h) / 3
 
 def _rich2(f:Callable, x: float, h: float, f0: float | None = None) -> float:
+    """Richardson second derivative"""
     if f0 is None:
         f0 = f(x)
     cd2_h = (f(x + h) - 2 * f0 + f(x - h)) / h ** 2
@@ -50,6 +82,10 @@ def build_pricer (option_type: str, params: dict) -> float:
 
 
 def scan_bump_sizes(f:Callable, x0: float, bumps:np.ndarray, mode: str = 'central', rich_h: float | None = None, scale: float = 1.0) -> dict:
+    """
+    Scan a range of bump sizes and assess finite-difference stability. For each h in `bumps`, compute the finite-difference estimate,
+    compare against a Richardson O(h^4) benchmark, and flag h as 'stable' if the relative error is below STABLE_STANDARD (1%).
+    """
     if rich_h is None:
         rich_h = float(np.exp(np.mean(np.log(bumps))))
 
@@ -195,7 +231,7 @@ def plot_bump_stability(option_type: str, base_params: dict, n_bumps: int = 50,
     dist_pct = abs(S0 - B) / B * 100
     fig.suptitle(
         f"Bump-Size Stability  [{option_type.upper()}] "
-        f"S={S0}  K={base_params['K']}  B={B}  σ={sig0:.0%}\n"
+        f"S={S0}  K={base_params['K']}  B={B}  sigma={sig0:.0%}\n"
         f"(S−B)/B = {dist_pct:.2f}%   "
         f"Stable zone = relative error < {STABLE_STANDARD:.0%} vs Richardson O(h⁴) reference",
         fontsize=10
@@ -205,7 +241,7 @@ def plot_bump_stability(option_type: str, base_params: dict, n_bumps: int = 50,
 
 
 
-def plot_near_barrier_bump(option_type: str, base_params: dict, n_S: int = 10, barrier_dist_range: tuple = (0.005, 0.1),
+def plot_near_barrier_bump(option_type: str, base_params: dict, n_S: int = 30, barrier_dist_range: tuple = (-0.0033, 0.05),
                            n_bumps: int = 25, S_frac_range: tuple = (1e-7, 5e-2)) -> None:
 
 
@@ -255,12 +291,12 @@ def plot_near_barrier_bump(option_type: str, base_params: dict, n_S: int = 10, b
 
     ax = axes[0]
     ax.semilogy(dist_pct, optimal_hs, 'o-', color='steelblue',
-                ms=5, lw=1.5, label='Optimal Δ bump')
+                ms=5, lw=1.5, label='Optimal delta bump')
     ax.fill_between(dist_pct, stable_los, stable_his,
                     alpha=0.2, color='steelblue', label='Stable zone bounds')
     ax.set_xlabel('Distance from barrier  (B−S)/B  [%]', fontsize=9)
     ax.set_ylabel('Optimal bump size  h*  (log scale)', fontsize=9)
-    ax.set_title('Optimal Δ Bump vs Barrier Distance', fontsize=10, fontweight='bold')
+    ax.set_title('Optimal delta Bump vs Barrier Distance', fontsize=10, fontweight='bold')
     ax.legend(fontsize=8)
     ax.grid(True, which='both', alpha=0.25)
     ax.invert_xaxis()
@@ -274,7 +310,7 @@ def plot_near_barrier_bump(option_type: str, base_params: dict, n_S: int = 10, b
     ax.fill_between(dist_pct, 0, stable_scores * 100, alpha=0.15, color='green')
     ax.set_xlabel('Distance from barrier  (B−S)/B  [%]', fontsize=9)
     ax.set_ylabel('Stability score  [%]', fontsize=9)
-    ax.set_title('Δ Numerical Stability Score vs Barrier Distance',
+    ax.set_title('delta Numerical Stability Score vs Barrier Distance',
                  fontsize=10, fontweight='bold')
     ax.set_ylim(-5, 105)
     ax.legend(fontsize=8)
@@ -282,8 +318,8 @@ def plot_near_barrier_bump(option_type: str, base_params: dict, n_S: int = 10, b
     ax.invert_xaxis()
 
     fig.suptitle(
-        f"Near-Barrier Δ Bump Analysis  [{option_type.upper()}]"
-        f"  B={B}  K={base_params['K']}  σ={base_params['sigma']:.0%}\n"
+        f"Near-Barrier delta Bump Analysis  [{option_type.upper()}]"
+        f"  B={B}  K={base_params['K']}  sigma={base_params['sigma']:.0%}\n"
         "As S → B, the optimal bump shrinks and the stable zone narrows — "
         "a direct consequence of the barrier discontinuity",
         fontsize=9
@@ -303,7 +339,7 @@ def run_bump_analysis(
     print(f"\n{sep}")
     print(f"  Bump-Size Analysis — {option_type.upper()}")
     print(f"  S={base_params['S']}  B={base_params['B']}"
-          f"  K={base_params['K']}  σ={base_params['sigma']:.0%}")
+          f"  K={base_params['K']}  sigma={base_params['sigma']:.0%}")
     dist = abs(base_params['S'] - base_params['B']) / base_params['B']
     print(f"  Barrier distance (B−S)/B = {dist:.2%}")
     print(sep)
@@ -326,18 +362,20 @@ if __name__ == '__main__':
         end_dt="2026.06.18 15:00:00",
         trading_days_per_year=242,
     )
-    run_bump_analysis('normal', params_normal, near_barrier=True)
+    #run_bump_analysis('normal', params_normal, near_barrier=True)
 
 
     params_ko = {**params_normal}
     #run_bump_analysis('knockout', params_ko, near_barrier=True)
 
 
-    params_ko_near = {**params_ko, 'S': 3405}
+    params_ko_near = {**params_ko, 'S': 3420.25}
     print("\n[Stress test: S close to B]")
-    #run_bump_analysis('knockout', params_ko_near, near_barrier=False,
-                      #n_bumps=60, show_forward=True)
+    run_bump_analysis('knockout', params_ko_near, near_barrier=False, n_bumps=60, show_forward=True)
 
+    params_normal_near = {**params_normal, 'S': 3420.25}
+    print("\n[Stress test: S close to B]")
+    run_bump_analysis('normal', params_normal_near, near_barrier=False, n_bumps=60, show_forward=True)
 
 
 
