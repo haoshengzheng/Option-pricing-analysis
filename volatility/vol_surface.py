@@ -439,7 +439,7 @@ class VolSurface:
         plt.tight_layout()
         return fig
 
-    # ── Figure 2: Smiles per expiry ───────────────────────────────────────────
+    # Figure 2: Smiles per expiry
 
     def _plot_smiles(self):
         n     = len(self.expiries)
@@ -506,7 +506,7 @@ class VolSurface:
         plt.tight_layout()
         return fig
 
-    # ── Figure 3: 3-D surface + heatmap + skew + convexity ───────────────────
+    # Figure 3: 3-D surface + heatmap + skew + convexity
 
     def _plot_surface(self):
         LM, TT, IV = self.surface_grid()
@@ -547,7 +547,7 @@ class VolSurface:
         ax2d.set_title('IV Heatmap', fontsize=11)
         fig.colorbar(cont, ax=ax2d).set_label('IV (%)')
 
-        # 25Δ Skew & Butterfly per expiry
+        # 25delta Skew & Butterfly per expiry
         ax_sk = fig.add_subplot(gs[1, 0])
         ax_cv = fig.add_subplot(gs[1, 1])
         skews, convex, days = [], [], []
@@ -594,7 +594,7 @@ class VolSurface:
 
         return fig
 
-    # ── Figure 4: Sticky Rules ─────────────────────────────────────────────────
+    # Figure 4: Sticky Rules
 
     def _plot_sticky(self, expiry_idx: int = 3,
                      dS_pcts: tuple = (-0.10, -0.05, 0.05, 0.10)):
@@ -709,7 +709,7 @@ class VolSurface:
 
 
 def main():
-    filepath = 'C:/Users/windows10/Documents/GitHub/Option-pricing-analysis/volatility/tsla_option.xlsx'
+    filepath = 'volatility/tsla_option.xlsx'
     print('Constructing TSLA vol surface...\n')
     vs = VolSurface(filepath, r=0.04, b=0.04, min_volume=50, min_price=0.50,
                     max_spread_pct=0.25, delta_range=(0.05, 0.95))
@@ -720,13 +720,11 @@ def main():
         print(f'  {lbl}  T={t*252:5.0f}d  ATM IV = {iv*100:.2f}%')
 
     print('\nGenerating plots...')
-    vs.plot_all(save_prefix='C:/Users/windows10/Documents/GitHub/Option-pricing-analysis/images/tsla_vol')
+    vs.plot_all()
     print('Done.')
     return vs
 
 
 if __name__ == '__main__':
-    import matplotlib
-    matplotlib.use('Agg')
     main()
-    plt.show()
+
