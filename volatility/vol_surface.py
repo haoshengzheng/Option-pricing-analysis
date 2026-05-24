@@ -1,6 +1,4 @@
 """
-vol_surface.py
-==============
 Implied volatility surface for US equity call options — TSLA data.
 
 IV is solved from mid = (bid + ask) / 2 using the Newton-Raphson / bisection
@@ -8,8 +6,8 @@ solver in volatility.iv_solver, which internally uses core.time_utils for
 precise US-market trading-seconds calculation.
 
 
-Notes on American option pricing
----------------------------------
+Notes on American option pricing：
+
 The data set contains only CALL options on TSLA (no regular dividend).
 By Merton (1973), early exercise of a call on a non-dividend-paying stock is
 never optimal → American call = European call → BSM is exact for pricing and
@@ -36,13 +34,14 @@ from scipy.interpolate import RBFInterpolator
 from scipy.optimize import minimize, brentq
 from scipy.stats import norm
 
-from core.time_utils_american import parse_dt,count_trading_seconds_precise,SECONDS_PER_FULL_TRADE_DAY, trading_days_per_year
+from core.time_utils_US import parse_dt,count_trading_seconds_precise,SECONDS_PER_FULL_TRADE_DAY, trading_days_per_year
 from core.vanilla import VanillaBSM
 
 
 warnings.filterwarnings('ignore')
 
 def _bsm_delta(S: float, K: float, T_trade: float, T_cal: float, r: float, b: float, sigma: float) -> float:
+    """BSM call delta under the dual-time convention (T_trade drives the diffusion d1, T_cal drives the carry/discount factor)."""
     if T_trade <= 0:
         return 1.0 if S >= K else 0.0
     d1  = (np.log(S / K) + (b + 0.5 * sigma ** 2) * T_trade) / (sigma * np.sqrt(T_trade))
@@ -51,6 +50,7 @@ def _bsm_delta(S: float, K: float, T_trade: float, T_cal: float, r: float, b: fl
 
 def _strike_from_delta(target_delta: float, S: float, T_trade: float, T_cal: float,
                        r: float, b: float, sigma: float) -> float:
+    """Invert delta to a strike via Brent — used to place approximate delta tick marks (10Δ..90Δ) on the smile plots."""
     try:
         res = brentq(lambda K: _bsm_delta(S, K, T_trade, T_cal, r, b, sigma) - target_delta,
                       S * 0.01, S * 10, xtol=0.01,)
@@ -61,9 +61,9 @@ def _strike_from_delta(target_delta: float, S: float, T_trade: float, T_cal: flo
 
 
 
-# SVI
-# w(x) = a + b·(ρ·(x−m) + √((x−m)² + σ²)),   x = ln(K/F),  w = σ²·T
+
 def _svi_w(x: np.ndarray, a, b, rho, m, sig) -> np.ndarray:
+    """Raw SVI total-variance slice: w(x) = a + b[rho(x−m) + sqrt((x−m)^2 +sigma^2)],  x = ln(K/F),  w = IV²·T."""
     return a + b * (rho * (x - m) + np.sqrt((x - m) ** 2 + sig ** 2))
 
 
@@ -95,6 +95,18 @@ def _fit_svi(x: np.ndarray, iv: np.ndarray, T: float):
 
 
 class VolSurface:
+    """
+    Implied-volatility surface for TSLA call options under the dual-time framework.
+
+    Pipeline: load option quotes → solve IV from mid prices (robust
+    Newton/bisection) → clean (volume, spread, delta-range, log-moneyness
+    filters) → interpolate a thin-plate-spline RBF surface on (log-moneyness,
+    sqrtT). SVI is fitted per expiry for the smile plots; the surface itself is the RBF.
+
+    Produces four figures: term structure, per-expiry smiles (with SVI),
+    3-D surface + skew/convexity/dispersion diagnostics, and sticky-rule
+    smile dynamics.
+    """
     def __init__(self, filepath: str, r: float = 0.03, b:float = 0.03, min_volume: int = 0,min_price: float = 0.50,
                  max_spread_pct: float = 0.25,  delta_range: tuple = (0.05, 0.95),  lm_range: tuple = (-0.55, 0.80),  ):
 
@@ -110,7 +122,9 @@ class VolSurface:
     @staticmethod
     def _solve_iv_fast(price_mkt: float, S: float, K: float,T_trade: float, T_cal: float,r: float, b: float,
                        sigma_low: float = 1e-4, max_iter: int = 100, sigma_high: float = 10.0,epsilon: float = 1e-6) -> float:
-
+        """Invert BSM price to IV. Brenner-Subrahmanyam ATM seed, then
+        Newton-Raphson on vega, falling back to bisection when vega is too
+        small (deep OTM). Returns NaN if the price violates no-arbitrage bounds."""
         phi = 1
         v_high = VanillaBSM(S, K, T_trade, T_cal, r, b, sigma=sigma_high)
         if price_mkt >= v_high.price(phi):
@@ -217,10 +231,6 @@ class VolSurface:
         df['iv'] = all_ivs
 
 
-        '''''''''
-        dropping failed solves, extreme IV values, and deep OTM/ITM 'wings' through a Delta-range filter—
-        to ensure a high-fidelity dataset for robust surface calibration
-        '''''''''
         sigma_high = 10.0
         df = df[df['iv'].notna()]
         df = df[df['iv'] > 0.01]
@@ -247,20 +257,21 @@ class VolSurface:
 
 
     def _build_rbf(self):
-        """
-        Interpolate on (log_m, √TTE).
-        √TTE linearises the vol surface because skew ∝ 1/√T and variance ∝ T.
-        """
+        """Build the surface as a thin-plate-spline RBF on (log_m, sqrtT). sqrtT is
+        used because skew is proportional to 1/sqrtT and variance is proportional to T, which linearises the
+        surface and stabilises interpolation/extrapolation."""
         X = np.column_stack([self.df['log_m'].values,
                              np.sqrt(self.df['TTE_trade'].values)])
         y = self.df['iv'].values
         self._rbf = RBFInterpolator(X, y, kernel='thin_plate_spline', smoothing=5e-4)
 
     def get_vol(self, K: float, TTE_trade: float) -> float:
+        """IV at a single (strike, trade-time-to-expiry) from the RBF surface."""
         lm = np.log(K / self.S)
         return float(self._rbf(np.array([[lm, np.sqrt(TTE_trade)]])))
 
     def get_vol_vec(self, lm_arr: np.ndarray, TTE_trade: float) -> np.ndarray:
+        """Vectorised RBF IV lookup across a log-moneyness array at fixed T."""
         X = np.column_stack([lm_arr, np.full_like(lm_arr, np.sqrt(TTE_trade))])
         return self._rbf(X)
 
@@ -280,6 +291,7 @@ class VolSurface:
 
 
     def term_structure(self):
+        """ATM IV (nearest-to-money strike) vs trade-time-to-expiry."""
         t_trade, ivs, labels = [], [], []
         for i in range(len(self.expiries)):
             K, lm, iv, _, T_trade, lbl, _ , _ = self.get_slice(i)
@@ -289,6 +301,7 @@ class VolSurface:
 
 
     def surface_grid(self, n_lm: int = 70, n_T: int = 60):
+        """Evaluate the RBF surface on a (log-moneyness × T) mesh for plotting."""
         lm_arr = np.linspace(*self.lm_range, n_lm)
         T_arr  = np.linspace(self.TTEs.min(), self.TTEs.max(), n_T)
         LM, TT = np.meshgrid(lm_arr, T_arr)
@@ -299,23 +312,12 @@ class VolSurface:
 
     def sticky_smiles(self, expiry_idx: int, dS_pcts: list[float] | None = None) -> dict:
         """
-        How does the smile change when spot moves from S₀ to S₁ = S₀·(1+dS)?
-
-        Sticky Strike (SS)
-            σ(K, T) unchanged.
-            In new-moneyness space the smile shifts by −δs = −ln(S₁/S₀).
-            → σ_SS(x_new) = σ_old(x_new + δs)
-
-        Sticky Moneyness (SM)
-            σ(ln(K/S), T) unchanged.
-            In new-moneyness space the smile is identical to the old smile.
-            → σ_SM(x_new) = σ_old(x_new)
-
-        Sticky Delta (SD)
-            σ(Δ, T) unchanged.
-            Solved exactly via d₁ equation:
-            x_new = (b + σ²/2)·T − d₁_old · σ · √T
-            (For small moves SD ≈ SM; the difference comes from the σ²T/2 term.)
+        Predict how one expiry's smile moves when spot shifts S0 -> S1=S0(1+dS),
+        under three desk conventions:
+          Sticky Strike (SS):     sigma(K,T) fixed → smile shifts by −ln(S1/S0).
+          Sticky Moneyness (SM):  sigma(ln(K/S),T) fixed → smile unchanged in moneyness.
+          Sticky Delta (SD):      sigma(delta,T) fixed → solved exactly via the d1 equation.
+        Returns IV curves for each rule, used to compare hedging delta corrections.
         """
         if dS_pcts is None:
             dS_pcts = [-0.10, -0.05, 0.05, 0.10]
@@ -707,7 +709,7 @@ class VolSurface:
 
 
 def main():
-    filepath = 'D:/定价模型/代码/projects/volatility/tsla_option.xlsx'
+    filepath = 'C:/Users/windows10/Documents/GitHub/Option-pricing-analysis/volatility/tsla_option.xlsx'
     print('Constructing TSLA vol surface...\n')
     vs = VolSurface(filepath, r=0.04, b=0.04, min_volume=50, min_price=0.50,
                     max_spread_pct=0.25, delta_range=(0.05, 0.95))
@@ -718,7 +720,7 @@ def main():
         print(f'  {lbl}  T={t*252:5.0f}d  ATM IV = {iv*100:.2f}%')
 
     print('\nGenerating plots...')
-    vs.plot_all(save_prefix='D:/定价模型/代码/projects/tsla_vol')
+    vs.plot_all(save_prefix='C:/Users/windows10/Documents/GitHub/Option-pricing-analysis/images/tsla_vol')
     print('Done.')
     return vs
 
