@@ -344,3 +344,12 @@ $$
 - **Flat-vol assumption**: The model assumes volatility is a constant. However, Under a non-flat smile, the three strikes $K_1, K_2, K_3$ would
   have inconsistent implied vols, and the static-replication weights
   would no longer be exact hedge ratios.
+
+## Extension to Knock-Out
+
+The KO accumulator has the same daily payoff as the normal version, but
+adds a knock-out feature: once spot touches $B$, the contract terminates 
+with a fixed rebate. The Carr-Madan replication no longer applies because 
+the payoff becomes path-dependent. Instead, we price each observation day's 
+contribution via the Haug closed-form barrier formula with BGK discrete 
+correction (see [`models/ko_accumulator.py`](../models/ko_accumulator.py).

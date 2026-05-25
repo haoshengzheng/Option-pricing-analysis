@@ -141,6 +141,18 @@ single answer — it depends on the **sticky convention** the market follows, an
 the choice changes the **hedging delta**. This is the most practically
 important analysis in the file.
 
+### Where the delta corrections come from
+
+When the smile moves with spot, the IV of a fixed strike is itself a function
+of spot, so the true hedging delta is the total derivative:
+
+
+$\Delta_{eff} = \frac{dV}{dS} = \underbrace{\frac{\partial V}{\partial S}}_{\Delta_{BSM}}$
+$+ \underbrace{\frac{\partial V}{\partial \sigma}}_{vega} \cdot \frac{d\sigma}{dS}$
+
+The correction is essentially a vanna term $(vega × d\sigma/dS)$: choosing the wrong
+sticky rule means hedging with the wrong vanna adjustment.
+
 ### The three conventions
 
 - **Sticky Strike (SS):** $\sigma(K, T)$ stays fixed — each strike keeps its vol. In
