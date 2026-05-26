@@ -12,7 +12,7 @@ literature — no QuantLib, no proprietary toolkits — and validated internally
 via put-call / in-out parity, Monte Carlo cross-checks, and agreement with
 QuantLib on vanilla benchmarks.
 
-![Pin risk near the barrier](/images/Pin_Risk.png)
+![Pin risk near the barrier](images/Pin_Risk.png)
 
 ---
 
@@ -51,9 +51,9 @@ Session definitions live in `core/time_utils.py`.
   (up/down × in/out × call/put) via the reflection principle, with the
   **Broadie-Glasserman-Kou (1997)** continuity correction ($\beta \approx 0.5826$) mapping
   continuous-monitoring formulas to discrete daily monitoring.
-- **Accumulator** — priced by **Carr-Madan (1998)** static replication: the
+- **Accumulator** —  priced by **Carr-Madan (1998)** static replication: the
   piecewise-linear daily payoff is decomposed into a finite portfolio of
-  vanilla options ([derivation](docs/normal_accumulator_replication.md)).
+  vanilla options (see methodology below).
 - **Knock-Out Accumulator** — the accumulator with a knock-out barrier and
   rebate, built on the discrete-barrier engine.
 - Each analytic pricer has a matching **Monte Carlo** implementation using
@@ -63,7 +63,18 @@ Session definitions live in `core/time_utils.py`.
 (1998), *Towards a Theory of Volatility Trading*.
 
 ---
+## Methodology: deriving the accumulator pricer
 
+[The accumulator replication note](docs/normal_accumulator_replication.md)
+gives the full derivation behind the pricer: the daily payoff's cliff at the
+barrier is regularized into a ramp, its distributional second derivative becomes
+a sum of Dirac deltas at the three kinks, and the Carr-Madan integral collapses
+into a closed-form portfolio of three vanilla puts. The note also shows why a 
+naive two-strike vanillas misprice the initial payoff, verifies the weights at 
+both payoff endpoints, and quantifies the strike-shift trade-off 
+(accuracy vs replication-weight blow-up as $1/\epsilon$).
+
+---
 ## Risk-analysis studies (coded in `analysis/`, documented in `docs/`)
 
 Each study is a standalone module with a written analysis. Beyond standard
@@ -91,7 +102,7 @@ listed calls:
   $T$, which linearises the surface.
 - **Per-expiry SVI fits** — Gatheral's five-parameter form, with the
   no-arbitrage wing and non-negative-variance constraints, for the smile plots.
-- **Sticky-rule analysis** — sticky strike / moneyness(delta), deriving the
+- **Sticky-rule analysis** — sticky strike / moneyness, deriving the
   **correction** ($\Delta_{eff} = \Delta_{BSM} − vega·skew/S$) each convention implies
   for the hedging delta, and the P&L consequence of choosing the wrong one.
 

@@ -118,17 +118,76 @@ the smile shape are well-behaved.
 
 ![Surface](../images/tsla_vol_surface.png)
 
-- **3-D surface & heatmap:** the RBF surface over (log-moneyness, days). The
-  dominant feature is the steep rise in IV for low strikes at short maturity
-  (the deep red corner) — short-dated downside protection is expensive, the
-  hallmark of equity skew.
-- **Skew term structure** (25$\Delta$ − 75$\Delta$): negative at all tenors (put skew),
-  steepest at short maturity and flattening with time — skew decays roughly as
-  $1/\sqrt{T}$.
-- **Smile convexity** (25$\Delta$ butterfly): mostly positive, the smile's curvature;
-  a spike at one tenor flags a locally sharper smile.
-- **Smile dispersion** (vol-of-vol proxy): the spread of IV across the 20$\Delta$–80$\Delta$
-  range, a rough measure of how much the smile "bends" at each tenor.
+### 3-D Surface & Heatmap
+
+The 3-D surface and its heatmap show the RBF interpolant over
+(log-moneyness, days to expiry). Several features are worth reading off it:
+
+- **The deep-red corner — short-dated, low-strike — dominates.** IV rises
+  steeply for low strikes (negative log-moneyness, K < S) at short maturity,
+  reaching into the 90s while the rest of the surface sits in the 55–70 range.
+  This is the equity skew in its sharpest form: near-term downside protection
+  is the most expensive thing on the board. It is also where the surface is
+  most curved, and where any interpolation is least reliable (fewest, most
+  scattered quotes — visible as the sparse points in that corner of the
+  heatmap).
+
+- **Skew flattens into the wings and with maturity.** Moving right (toward
+  high strikes / positive log-moneyness) the surface cools to the green
+  55–60 range, and the steep short-dated smile relaxes into a gentler tilt skew at
+  longer tenors — the long end is a mild, almost linear slope rather than a
+  sharp corner.
+
+- **The term structure is mild away from the corner.** Along any fixed
+  moneyness, IV varies only modestly with maturity (the green region is fairly
+  flat front-to-back), consistent with the near-linear total-variance term
+  structure seen earlier — most of the surface's structure lives in the
+  moneyness direction, not the maturity direction.
+
+- **Data coverage is uneven.** The overlaid quote points (heatmap) cluster
+  near ATM and thin out in the deep wings and at the longest tenors, so the
+  surface is genuinely data-driven near the money and increasingly an
+  extrapolation toward the edges — a caveat for any pricing read off the
+  far corners.
+
+All three lower-panel diagnostics use **call delta** to locate strikes: $75\Delta$ is
+a low strike (ITM call, downside), $50\Delta$ is ATM, $25\Delta$ is a high strike (OTM call,
+upside). There are always two points to keep in mind:
+
+1. The points are the **nearest available quotes** to 0.2 / 0.25 / 0.50 / 0.75 / 0.8
+  delta, not interpolated to exact delta. On sparse expiries (especially the
+  shortest tenors, which have few strikes) these anchors are approximate, so
+  the metrics there are noisy.
+
+2. The metrics assume the smile is anchored at ATM (50Δ). In this data the smile
+  minimum often sits well to the right of 50Δ (at lower delta / higher strike),
+  and the longest tenors are nearly monotone with no clear bottom — so
+  ATM-referenced metrics can misrepresent the true smile shape.
+
+  
+- **Skew term structure** ($25\Delta − 75\Delta$):the high-strike IV minus the
+  low-strike IV. It is **negative at every tenor**, confirming the equity put
+  skew — low strikes carry higher IV as the market pays up for downside
+  protection. The magnitude varies non-monotonically across tenors rather than
+  decaying cleanly with maturity; the single very large value near 100 days is
+  a sparse/noisy expiry (it also shows up as an outlier in the convexity panel).
+
+- **Smile convexity** ($25\Delta$ butterfly): the average
+  of the two wings minus the ATM IV — a measure of curvature **relative to ATM**.
+  It is positive when the wings sit above ATM. Crucially, because the actual
+  smile minimum is often not at 50Δ but further toward the upside, this
+  ATM-referenced butterfly understates the true convexity, and the occasional
+  negative value reflects the trough sitting away from 50Δ (so $\text{IV}_{25\Delta}$ falls
+  near or below $\text{IV}_{50\Delta}$) rather than a genuinely inverted smile. A butterfly
+  centred on the actual minimum would be a cleaner convexity measure.
+
+- **Smile dispersion** (vol-of-vol proxy): how widely IV varies across
+  strikes within one expiry — low for a flat smile, high for a steep or convex
+  one. Labelled a **vol-of-vol proxy** because smile convexity is driven by the
+  volatility of volatility; a wider IV spread loosely indicates more uncertainty
+  priced into vol itself. It is only a proxy, not a vol-of-vol calibrated from a
+  stochastic-volatility model, and it too is sensitive to how many clean points
+  fall in the $20\Delta–800\Delta$ band at each tenor.
 
 ---
 
@@ -146,8 +205,7 @@ When the smile moves with spot, the IV of a fixed strike is itself a function
 of spot, so the true hedging delta is the total derivative:
 
 
-$\Delta_{eff} = \frac{dV}{dS} = \underbrace{\frac{\partial V}{\partial S}}_{\Delta_{BSM}}$
-$+ \underbrace{\frac{\partial V}{\partial \sigma}}_{vega} \cdot \frac{d\sigma}{dS}$
+ $\Delta_{eff} = \frac{dV}{dS} = \underbrace{\frac{\partial V}{\partial S}}_{\Delta_{BSM}} + \underbrace{\frac{\partial V}{\partial \sigma}}_{vega} \cdot \frac{d\sigma}{dS}$
 
 The correction is essentially a vanna term $(vega × d\sigma/dS)$: choosing the wrong
 sticky rule means hedging with the wrong vanna adjustment.
