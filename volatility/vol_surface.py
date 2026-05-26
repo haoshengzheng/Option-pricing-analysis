@@ -684,7 +684,7 @@ class VolSurface:
 
 
 def main():
-    filepath = 'C:/Users/windows10/Documents/GitHub/Option-pricing-analysis/volatility/tsla_option.xlsx'
+    filepath = 'volatility/tsla_option.xlsx'
     print('Constructing TSLA vol surface...\n')
     vs = VolSurface(filepath, r=0.04, b=0.04, min_volume=50, min_price=0.50,
                     max_spread_pct=0.25, delta_range=(0.05, 0.95))
