@@ -309,21 +309,29 @@ class VolSurface:
         IV = np.clip(self._rbf(X).reshape(TT.shape), 0.01, None)
         return LM, TT, IV
 
-
     def sticky_smiles(self, expiry_idx: int, dS_pcts: list[float] | None = None) -> dict:
         """
-        Predict how one expiry's smile moves when spot shifts S0 -> S1=S0(1+dS),
-        under three desk conventions:
-          Sticky Strike (SS):     sigma(K,T) fixed → smile shifts by −ln(S1/S0).
-          Sticky Moneyness (SM):  sigma(ln(K/S),T) fixed → smile unchanged in moneyness.
-          Sticky Delta (SD):      sigma(delta,T) fixed → solved exactly via the d1 equation.
-        Returns IV curves for each rule, used to compare hedging delta corrections.
+        How the smile moves when spot goes S0 -> S1 = S0*(1+dS), under two desk
+        conventions. x is log-moneyness relative to the NEW spot S1.
+
+        Sticky Strike (SS):     sigma(K, T) fixed.
+            Each strike keeps its vol. In new-moneyness space the smile shifts by
+            ds = ln(S1/S0):  sigma_SS(x) = sigma_old(x + ds).
+            Hedging delta needs no correction: Delta_eff = Delta_BSM.
+
+        Sticky Moneyness (SM):  sigma(ln(K/S), T) fixed.
+            The smile is pinned in spot-moneyness space; in new-moneyness space it
+            is identical to the old smile: sigma_SM(x) = sigma_old(x).
+            Hedging delta: Delta_eff = Delta_BSM - vega*skew/S.
+
+        Sticky Delta is not shown separately: with the smile parameterised in
+        spot-moneyness, fixing delta (hence d1) at constant sigma fixes ln(K/S)
+        too, so Sticky Delta coincides with Sticky Moneyness here.
         """
         if dS_pcts is None:
             dS_pcts = [-0.10, -0.05, 0.05, 0.10]
 
-        _, _, _, _, T, _, _,_ = self.get_slice(expiry_idx)
-        sqT = np.sqrt(max(T, 1e-6))
+        _, _, _, _, T, _, _, _ = self.get_slice(expiry_idx)
 
         x_dense = np.linspace(-0.50, 0.50, 300)
         iv_orig = self.get_vol_vec(x_dense, T)
@@ -331,29 +339,16 @@ class VolSurface:
         out = {'x': x_dense, 'iv_orig': iv_orig, 'S0': self.S, 'T': T}
 
         for dS in dS_pcts:
-            ds  = np.log(1 + dS)          # = ln(S₁/S₀)
+            ds = np.log(1 + dS)  # = ln(S1/S0)
             key = f'{dS:+.2f}'
 
-            # SS: evaluate old surface at old moneyness = x_new + δs
-            iv_ss = self.get_vol_vec(x_dense + ds, T)
-
-            # SM: surface unchanged in moneyness space
-            iv_sm = self.get_vol_vec(x_dense, T)
-
-            # SD: exact via d₁ matching
-            x_old_sd   = x_dense + ds
-            iv_old_sd  = np.clip(self.get_vol_vec(x_old_sd, T), 1e-4, None)
-            d1_old     = (-x_old_sd + (self.b + 0.5 * iv_old_sd ** 2) * T) / (iv_old_sd * sqT)
-            x_new_sd   = (self.b + 0.5 * iv_old_sd ** 2) * T - d1_old * iv_old_sd * sqT
-            iv_sd = self.get_vol_vec(x_new_sd, T)
-            sort_i     = np.argsort(x_new_sd)
+            iv_ss = self.get_vol_vec(x_dense + ds, T)  # SS: old smile at x+ds
+            iv_sm = self.get_vol_vec(x_dense, T)  # SM: unchanged in moneyness
 
             out[key] = {
-                'S1':    self.S * (1 + dS),
+                'S1': self.S * (1 + dS),
                 'iv_ss': iv_ss,
                 'iv_sm': iv_sm,
-                'x_sd':  x_new_sd[sort_i],
-                'iv_sd': iv_sd,
             }
         return out
 
@@ -598,36 +593,31 @@ class VolSurface:
 
     def _plot_sticky(self, expiry_idx: int = 3,
                      dS_pcts: tuple = (-0.10, -0.05, 0.05, 0.10)):
-        _, _, _, _, T, lbl, _ ,_= self.get_slice(expiry_idx)
+        _, _, _, _, T, lbl, _, _ = self.get_slice(expiry_idx)
         res = self.sticky_smiles(expiry_idx, list(dS_pcts))
 
         neg_c = ['#d62728', '#ff7f0e']
         pos_c = ['#2ca02c', '#1f77b4']
-        clrs  = neg_c + pos_c
-        sdS   = sorted(dS_pcts)
+        clrs = neg_c + pos_c
+        sdS = sorted(dS_pcts)
 
-        fig, axes = plt.subplots(2, 2, figsize=(16, 11))
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
         fig.suptitle(
-            f'TSLA Sticky Rules  —  Expiry: {lbl}  (T = {T*252:.0f}d)\n'
+            f'TSLA Sticky Rules  -  Expiry: {lbl}  (T = {T * 252:.0f}d)\n'
             r'X-axis: log-moneyness relative to new spot $S_1$',
             fontsize=13, fontweight='bold')
-        axs = axes.ravel()
 
         def _draw_panel(ax, rule_key, title, note):
             ax.plot(res['x'] * 100, res['iv_orig'] * 100,
-                    'k-', lw=2.5, label=f'Current  S₀={self.S:.1f}', zorder=6)
+                    'k-', lw=2.5, label=f'Current  S0={self.S:.1f}', zorder=6)
             ax.axvline(0, color='gray', lw=1, ls='--', alpha=0.5)
             for c, dS in zip(clrs, sdS):
-                d   = res[f'{dS:+.2f}']
-                lbl_ = f"S₁={d['S1']:.1f} ({dS*100:+.0f}%)"
-                ls  = '--' if dS < 0 else '-.'
-                if rule_key in ('ss', 'sm'):
-                    ax.plot(res['x'] * 100, d[f'iv_{rule_key}'] * 100,
-                            ls, color=c, lw=1.8, alpha=0.85, label=lbl_)
-                else:
-                    ax.plot(d['x_sd'] * 100, d['iv_sd'] * 100,
-                            ls, color=c, lw=1.8, alpha=0.85, label=lbl_)
-            ax.set_xlabel('Log-Moneyness ln(K/S₁) ×100')
+                d = res[f'{dS:+.2f}']
+                ls = '--' if dS < 0 else '-.'
+                ax.plot(res['x'] * 100, d[f'iv_{rule_key}'] * 100,
+                        ls, color=c, lw=1.8, alpha=0.85,
+                        label=f"S1={d['S1']:.1f} ({dS * 100:+.0f}%)")
+            ax.set_xlabel('Log-Moneyness ln(K/S1) x100')
             ax.set_ylabel('IV (%)')
             ax.set_title(title, fontsize=10, fontweight='bold')
             ax.set_ylim(bottom=0)
@@ -639,77 +629,62 @@ class VolSurface:
                     bbox=dict(boxstyle='round,pad=0.3', fc='lightyellow', alpha=0.85))
 
         _draw_panel(
-            axs[0], 'ss',
-            r'A. Sticky Strike  —  $\sigma(K,T)$ constant',
-            'Smile shifts LEFT by ln(S₁/S₀) in moneyness space.\n'
-            'ATM vol drops when spot rises  →  negative vol-spot correlation.\n'
-            'Δ_eff = Δ_BSM  (no vanna correction needed).')
+            axes[0], 'ss',
+            r'A. Sticky Strike  -  $\sigma(K,T)$ constant',
+            'Each strike keeps its vol; smile shifts by ln(S1/S0) in moneyness.\n'
+            'ATM vol drops when spot rises -> negative vol-spot correlation.\n'
+            'Hedging: Delta_eff = Delta_BSM (no skew correction).')
 
         _draw_panel(
-            axs[1], 'sm',
-            r'B. Sticky Moneyness  —  $\sigma(K/S, T)$ constant',
-            'Smile shape fixed in log-moneyness space; no lateral shift.\n'
+            axes[1], 'sm',
+            r'B. Sticky Moneyness  -  $\sigma(K/S,T)$ constant',
+            'Smile fixed in spot-moneyness; no lateral shift.\n'
             'ATM vol unchanged as spot moves.\n'
-            'Δ_eff = Δ_BSM + vega · (∂σ/∂S)|_{K/S}  (vanna correction > 0).')
+            'Hedging: Delta_eff = Delta_BSM - vega*skew/S.')
 
-        _draw_panel(
-            axs[2], 'sd',
-            r'C. Sticky Delta  —  $\sigma(\Delta, T)$ constant',
-            'Exact: x_new = (b+σ²/2)T − d₁_old·σ√T.\n'
-            'Indistinguishable from Sticky Moneyness for small ΔS.\n'
-            'Difference grows with σ²T and the slope of the skew.')
+        # Panel C: overlay both rules for +10% shock
+        ax = axes[2]
+        dS_ = 0.10
+        d_ = res[f'{dS_:+.2f}']
+        S1_ = d_['S1']
+        ax.plot(res['x'] * 100, res['iv_orig'] * 100,
+                'k-', lw=2.5, label=f'Current  S0={self.S:.1f}', zorder=6)
+        ax.plot(res['x'] * 100, d_['iv_ss'] * 100,
+                '-', color='#e31a1c', lw=2.2, label='Sticky Strike')
+        ax.plot(res['x'] * 100, d_['iv_sm'] * 100,
+                '-', color='#1f78b4', lw=2.2, label='Sticky Moneyness')
+        ax.axvline(0, color='gray', lw=1, ls='--', alpha=0.5)
 
-        # Panel D: overlay for +10%
-        ax4  = axs[3]
-        dS_  = 0.10
-        d_   = res[f'{dS_:+.2f}']
-        S1_  = d_['S1']
-        ax4.plot(res['x'] * 100, res['iv_orig'] * 100,
-                 'k-', lw=2.5, label=f'Current  S₀={self.S:.1f}', zorder=6)
-        ax4.plot(res['x'] * 100, d_['iv_ss'] * 100,
-                 '-',  color='#e31a1c', lw=2.2, label='Sticky Strike')
-        ax4.plot(res['x'] * 100, d_['iv_sm'] * 100,
-                 '-',  color='#1f78b4', lw=2.2, label='Sticky Moneyness')
-        ax4.plot(d_['x_sd'] * 100, d_['iv_sd'] * 100,
-                 '--', color='#33a02c', lw=2.2, label='Sticky Delta')
-        ax4.axvline(0, color='gray', lw=1, ls='--', alpha=0.5)
-
-        # annotate ATM spread
         iv_ss0 = float(self.get_vol_vec(np.array([np.log(S1_ / self.S)]), T)[0])
         iv_sm0 = float(self.get_vol_vec(np.array([0.0]), T)[0])
-        ax4.annotate(
-            f'ATM under SS: {iv_ss0*100:.1f}%\nATM under SM: {iv_sm0*100:.1f}%',
-            xy=(0, iv_sm0 * 100),
-            xytext=(15, 25), textcoords='offset points',
-            arrowprops=dict(arrowstyle='->', color='black'),
-            fontsize=8.5,
+        ax.annotate(
+            f'ATM under SS: {iv_ss0 * 100:.1f}%\nATM under SM: {iv_sm0 * 100:.1f}%',
+            xy=(0, iv_sm0 * 100), xytext=(15, 25), textcoords='offset points',
+            arrowprops=dict(arrowstyle='->', color='black'), fontsize=8.5,
             bbox=dict(boxstyle='round', fc='white', alpha=0.9))
 
-        ax4.set_xlabel('Log-Moneyness ln(K/S₁) ×100')
-        ax4.set_ylabel('IV (%)')
-        ax4.set_title(f'D. All Three Rules  —  +{dS_*100:.0f}% spot shock  (S₁={S1_:.1f})',
-                      fontsize=10, fontweight='bold')
-        ax4.set_ylim(bottom=0)
-        ax4.legend(fontsize=9)
-        ax4.grid(True, alpha=0.28)
-        ax4.yaxis.set_major_formatter(mticker.PercentFormatter(decimals=0))
-        ax4.text(
+        ax.set_xlabel('Log-Moneyness ln(K/S1) x100')
+        ax.set_ylabel('IV (%)')
+        ax.set_title(f'C. Both Rules  -  +{dS_ * 100:.0f}% spot shock  (S1={S1_:.1f})',
+                     fontsize=10, fontweight='bold')
+        ax.set_ylim(bottom=0)
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.28)
+        ax.yaxis.set_major_formatter(mticker.PercentFormatter(decimals=0))
+        ax.text(
             0.02, 0.03,
-            'Hedging Δ correction:\n'
-            '  SS:  Δ_eff = Δ_BSM\n'
-            '  SM:  Δ_eff = Δ_BSM + vega·skew/S\n'
-            '  SD:  Δ_eff ≈ SM correction',
-            transform=ax4.transAxes, fontsize=8, va='bottom', family='monospace',
+            'Hedging delta correction:\n'
+            '  SS:  Delta_eff = Delta_BSM\n'
+            '  SM:  Delta_eff = Delta_BSM - vega*skew/S',
+            transform=ax.transAxes, fontsize=8, va='bottom', family='monospace',
             bbox=dict(boxstyle='round,pad=0.4', fc='lightyellow', alpha=0.85))
 
         plt.tight_layout()
         return fig
 
 
-
-
 def main():
-    filepath = 'volatility/tsla_option.xlsx'
+    filepath = 'C:/Users/windows10/Documents/GitHub/Option-pricing-analysis/volatility/tsla_option.xlsx'
     print('Constructing TSLA vol surface...\n')
     vs = VolSurface(filepath, r=0.04, b=0.04, min_volume=50, min_price=0.50,
                     max_spread_pct=0.25, delta_range=(0.05, 0.95))
@@ -727,4 +702,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
+    plt.show()

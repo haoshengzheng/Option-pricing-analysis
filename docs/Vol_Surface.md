@@ -138,8 +138,7 @@ the smile shape are well-behaved.
 
 When spot moves from S0 to S1, how does the smile move with it? There is no
 single answer — it depends on the **sticky convention** the market follows, and
-the choice changes the **hedging delta**. This is the most practically
-important analysis in the file.
+the choice changes the **hedging delta**. 
 
 ### Where the delta corrections come from
 
@@ -153,39 +152,39 @@ $+ \underbrace{\frac{\partial V}{\partial \sigma}}_{vega} \cdot \frac{d\sigma}{d
 The correction is essentially a vanna term $(vega × d\sigma/dS)$: choosing the wrong
 sticky rule means hedging with the wrong vanna adjustment.
 
-### The three conventions
+Each sticky rule has a different answer for $d\sigma/dS$:
 
-- **Sticky Strike (SS):** $\sigma(K, T)$ stays fixed — each strike keeps its vol. In
+- **Sticky Strike (SS):** $\sigma(K, T)$ fixed — each strike keeps its vol. In
   moneyness space the smile shifts left by ln(S1/S0) when spot rises. ATM vol
   then falls as spot rises (negative vol-spot correlation). Hedging delta needs
   **no correction**: $\Delta_{eff} = \Delta_{BSM}$.
 
 - **Sticky Moneyness (SM):** $\sigma(ln(K/S), T)$ stays fixed — the smile shape is
-  pinned to moneyness and does not shift laterally. ATM vol is unchanged as
-  spot moves. The hedging delta gains a vanna correction:
-  $\Delta_{eff} = \Delta_{BSM} - vega·skew·1/S$, Where $skew = \partial{\sigma}/\partial(ln(S/K))$
+  pinned to moneyness and does not shift laterally. ATM vol is changed as
+  spot moves. The hedging delta gains a correction:
+  $\Delta_{eff} = \Delta_{BSM} - vega·skew·1/S$, Where $skew = \partial{\sigma}/\partial(ln(S/K))$.
+  For equities' negative skew this correction is positive.
 
-- **Sticky Delta (SD):** $\sigma(\Delta, T)$ stays fixed. Since delta and moneyness are nearly
-  one-to-one, this almost matches Sticky Moneyness. The two query the old smile
-  at slightly different moneyness points — sticky-delta preserves d1, giving
-  $x_{new} = (b + 1 /2 \sigma^2)T − d_1· \sigma \sqrt{T}$, versus sticky-moneyness's plain $ln(K/S_1)$. The gap
-  between these moneyness points is the $1/2 \sigma^2 T$ drift term in d1; it feeds through
-  the skew slope into an IV difference and hence a small delta difference. So
-  the two coincide for small $\sigma^2T$ or flat skew and separate as both grow.
-  the skew slope.
+### Why Sticky Delta is not shown separately
+
+A third convention, Sticky Delta ($\sigma(\Delta,T)$ fixed), is often listed alongside
+these. But with the smile parameterised in spot-moneyness, it adds nothing
+here: fixing delta means fixing $d_1$, and since
+$d_1 = [−ln(K/S) + (b + 1/2 \sigma^2)T] / (\sigma\sqrt{T})$, holding $d_1$ and $\sigma$ fixed holds $ln(K/S)$ fixed
+— which is exactly Sticky Moneyness. Sticky Delta only differs from Sticky
+Moneyness when the two use different moneyness bases (e.g. forward- vs
+spot-moneyness); under a single spot-moneyness parameterisation they coincide,
+so only the two genuinely distinct rules are shown.
 
 ### Why it matters
 
-Panel D overlays all three for a +10% spot shock. The ATM vol the desk would
-mark differs by rule — e.g. 60.6% under Sticky Strike versus 64.2% under Sticky
-Moneyness — and that feeds straight into the delta hedge. Choosing the wrong
-sticky convention means hedging with the wrong delta: a desk that assumes
-sticky-strike but lives in a sticky-moneyness world will be systematically
-under- or over-hedged after spot moves. The vanna correction (vega × skew
-slope) is exactly the adjustment that distinguishes them.
+Panel C overlays both rules for a +10% spot shock. The ATM vol the desk marks
+differs by rule — e.g. 60.6% under Sticky Strike versus 64.2% under Sticky
+Moneyness — and that feeds straight into the delta hedge. Assuming sticky-strike
+while the market is really sticky-moneyness means hedging with the wrong delta
+(off by vega·skew/S) and being systematically under- or over-hedged after spot
+moves. The sticky convention is a real risk decision, not a modelling detail.
 
-This connects the smile geometry to a concrete P&L consequence — which sticky
-assumption you make is a real risk decision, not a modelling detail.
 
 ---
 

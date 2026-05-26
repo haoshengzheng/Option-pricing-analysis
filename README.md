@@ -91,8 +91,8 @@ listed calls:
   $T$, which linearises the surface.
 - **Per-expiry SVI fits** — Gatheral's five-parameter form, with the
   no-arbitrage wing and non-negative-variance constraints, for the smile plots.
-- **Sticky-rule analysis** — sticky strike / moneyness / delta, deriving the
-  **vanna correction** ($\Delta_{eff} = \Delta_{BSM} − vega·skew/S$) each convention implies
+- **Sticky-rule analysis** — sticky strike / moneyness(delta), deriving the
+  **correction** ($\Delta_{eff} = \Delta_{BSM} − vega·skew/S$) each convention implies
   for the hedging delta, and the P&L consequence of choosing the wrong one.
 
 (Calls on a non-dividend underlier, where American = European by Merton.)
