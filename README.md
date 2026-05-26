@@ -12,7 +12,6 @@ literature — no QuantLib, no proprietary toolkits — and validated internally
 via put-call / in-out parity, Monte Carlo cross-checks, and agreement with
 QuantLib on vanilla benchmarks.
 
-![Pin risk near the barrier](images/Pin_Risk.png)
 
 ---
 
@@ -43,6 +42,18 @@ Session definitions live in `core/time_utils.py`.
 
 ---
 
+## Project structure
+
+```
+core/         vanilla BSM, discrete-barrier (Haug), dual-time utilities
+models/       normal & knock-out accumulators (analytic + Monte Carlo)
+analysis/     pnl, comparison, bump_size, greeks, mc_convergence
+volatility/   IV solver and vol-surface construction
+docs/         methodology and per-study write-ups
+test/         put-call & in-out parity, QuantLib cross-checks
+images/       generated figures
+```
+---
 ## Pricing engine (`core/`, `models/`)
 
 - **Vanilla (BSM)** — Black-Scholes-Merton with the dual-time convention and
@@ -128,17 +139,6 @@ This cross-study consistency — financial, numerical, and contractual risk all
 localizing to the same spot region — is the central thread of the project.
 
 ---
-
-## Project structure
-
-| Document    | content or code                                           |
-|-------------|-----------------------------------------------------------|
-| core/       | vanilla BSM, discrete-barrier (Haug), dual-time utilities |
-| models/     | normal & knock-out accumulators (analytic + Monte Carlo)  |
-| analysis/   | pnl, comparison, bump_size, greeks, mc_convergence        |
-| volatility/ | IV solver and vol-surface construction                    |
-| docs/       | methodology and per-study write-ups                       |
-| images/     | generated figures                                         |
 
 
 ## Installation
